@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chess</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <header class="app-header">
+    <h1>Chess</h1>
+    <div class="header-controls">
+      <label class="field">
+        <span class="field-label">Opponent</span>
+        <select id="opponent">
+          <option value="ai">Computer</option>
+          <option value="human">Two players</option>
+        </select>
+      </label>
+      <label class="field" id="level-field">
+        <span class="field-label">Level</span>
+        <select id="level">
+          <option value="beginner">Beginner</option>
+          <option value="casual">Casual</option>
+          <option value="intermediate" selected>Intermediate</option>
+          <option value="strong">Strong</option>
+          <option value="expert">Expert</option>
+        </select>
+      </label>
+      <label class="field" id="side-field">
+        <span class="field-label">Play as</span>
+        <select id="side">
+          <option value="white" selected>White</option>
+          <option value="black">Black</option>
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="board-area">
+      <div class="player-strip" id="strip-top">
+        <span class="player-name"></span>
+        <span class="captured" aria-label="Captured pieces"></span>
+        <span class="material"></span>
+      </div>
+
+      <!-- The board is a grid of buttons so it is keyboard and screen-reader usable. -->
+      <div class="board-wrap">
+        <div class="board" id="board" role="grid" aria-label="Chess board"></div>
+        <div class="promotion-overlay" id="promotion" hidden>
+          <div class="promotion-dialog" role="dialog" aria-modal="true" aria-labelledby="promo-title">
+            <h2 id="promo-title">Promote to</h2>
+            <div class="promotion-choices" id="promotion-choices"></div>
+          </div>
+        </div>
+        <div class="result-overlay" id="result" hidden>
+          <div class="result-card" role="alertdialog" aria-labelledby="result-title">
+            <h2 id="result-title"></h2>
+            <p id="result-detail"></p>
+            <button class="btn btn-primary" id="result-newgame">New game</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="player-strip" id="strip-bottom">
+        <span class="player-name"></span>
+        <span class="captured" aria-label="Captured pieces"></span>
+        <span class="material"></span>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="status" id="status" role="status" aria-live="polite">
+        <span class="status-turn" id="status-turn">White to move</span>
+        <span class="status-detail" id="status-detail"></span>
+      </div>
+
+      <div class="eval" id="eval-row">
+        <div class="eval-bar" aria-hidden="true"><div class="eval-fill" id="eval-fill"></div></div>
+        <span class="eval-text" id="eval-text">—</span>
+      </div>
+
+      <div class="moves-header">
+        <span>Moves</span>
+        <span class="thinking" id="thinking" hidden>thinking…</span>
+      </div>
+      <ol class="moves" id="moves" tabindex="0" aria-label="Move list"></ol>
+
+      <div class="controls">
+        <button class="btn" id="btn-new">New game</button>
+        <button class="btn" id="btn-undo">Undo</button>
+        <button class="btn" id="btn-flip">Flip board</button>
+        <button class="btn" id="btn-hint">Hint</button>
+      </div>
+
+      <details class="fen-box">
+        <summary>Position (FEN)</summary>
+        <textarea id="fen" spellcheck="false" rows="3" aria-label="FEN"></textarea>
+        <div class="fen-actions">
+          <button class="btn btn-small" id="btn-load">Load</button>
+          <button class="btn btn-small" id="btn-copy">Copy</button>
+          <span class="fen-msg" id="fen-msg" role="status" aria-live="polite"></span>
+        </div>
+      </details>
+    </aside>
+  </main>
+</div>
+
+<script type="module" src="src/app.js"></script>
+</body>
+</html>

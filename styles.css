@@ -1,0 +1,469 @@
+:root {
+  --bg: #1e232b;
+  --panel: #262c37;
+  --panel-2: #2d3442;
+  --text: #e8ecf3;
+  --muted: #98a2b3;
+  --accent: #4f8cff;
+  --accent-strong: #3b74e8;
+  --danger: #e5484d;
+  --good: #46a758;
+  --dark-sq: #779556;
+  --light-sq: #ebecd0;
+  --dark-sq-move: #baca2b;
+  --light-sq-move: #f5f682;
+  --border: rgba(255, 255, 255, 0.08);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.45;
+  display: flex;
+  justify-content: center;
+  padding: 20px 16px 28px;
+}
+
+.app {
+  width: 100%;
+  max-width: 1080px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.header-controls {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+select, textarea {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+select:focus, textarea:focus, .btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ------------------------------------------------------------------ layout */
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; }
+  body { padding: 12px 10px 24px; }
+}
+
+.board-area {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.board-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+/* ------------------------------------------------------------------ board */
+
+.board {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(8, 1fr);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  background: var(--dark-sq);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.square {
+  position: relative;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.square.dark { background: var(--dark-sq); }
+.square.light { background: var(--light-sq); }
+
+.square.from { box-shadow: inset 0 0 0 3px var(--accent-strong); }
+.square.checked { box-shadow: inset 0 0 0 3px var(--danger); }
+.square.last-move.dark { background: var(--dark-sq-move); }
+.square.last-move.light { background: var(--light-sq-move); }
+
+.square.dark.selectable { background: color-mix(in srgb, var(--dark-sq) 82%, var(--accent)); }
+.square.light.selectable { background: color-mix(in srgb, var(--light-sq) 78%, var(--accent)); }
+
+.square .coord {
+  position: absolute;
+  font-size: clamp(8px, 1.3vmin, 11px);
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.square .coord.file { bottom: 2px; right: 4px; }
+.square .coord.rank { top: 2px; left: 4px; }
+.square.dark .coord { color: rgba(255, 255, 255, 0.5); }
+
+/* Pieces live in a slot so the square can be re-skinned without touching them. */
+.piece-slot {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.piece {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* The piece left behind on the square while its copy follows the pointer. */
+.piece-slot.ghost {
+  opacity: 0.3;
+}
+
+/* Move hints: a dot for quiet moves, a ring for captures. */
+.hint::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hint.quiet::after {
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle, rgba(0,0,0,0.22) 0 18%, transparent 18%);
+}
+
+.hint.capture::after {
+  background: radial-gradient(circle, transparent 0 52%, rgba(0,0,0,0.22) 53% 67%, transparent 68%);
+}
+
+/* The piece that is being dragged. Centred on the pointer. */
+#dragged {
+  position: fixed;
+  z-index: 50;
+  width: var(--drag-size, 64px);
+  height: var(--drag-size, 64px);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  will-change: left, top;
+}
+
+#dragged svg { width: 100%; height: 100%; }
+
+/* While the engine thinks, the board is inert — say so with the cursor. */
+.board.busy { cursor: progress; }
+.board.busy .square { cursor: progress; }
+
+/* ------------------------------------------------------------------ overlays */
+
+.promotion-overlay, .result-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 15, 20, 0.55);
+  border-radius: 4px;
+  z-index: 30;
+}
+
+/* An author `display` rule outranks the UA stylesheet's `[hidden] { display: none }`,
+   so elements toggled via the hidden attribute need it restored explicitly. */
+[hidden] { display: none !important; }
+
+.promotion-dialog, .result-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  text-align: center;
+  min-width: 240px;
+}
+
+.promotion-dialog h2, .result-card h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.promotion-choices {
+  display: grid;
+  grid-template-columns: repeat(4, 56px);
+  gap: 8px;
+  justify-content: center;
+}
+
+.promo-btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 6px;
+  background: var(--panel-2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  transition: background 0.12s;
+}
+
+.promo-btn:hover, .promo-btn:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+
+.promo-btn svg { width: 100%; height: 100%; }
+
+.result-card p { margin: 0 0 14px; color: var(--muted); }
+
+/* ------------------------------------------------------------------ players */
+
+.player-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+  font-size: 14px;
+}
+
+.player-strip .player-name { font-weight: 600; }
+
+.player-strip.active .player-name {
+  color: var(--accent);
+}
+
+.captured {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  min-height: 18px;
+}
+
+.captured svg { width: 18px; height: 18px; }
+.captured svg.dim { opacity: 0.45; }
+.captured svg.captured-piece { width: 16px; height: 16px; opacity: 0.55; }
+
+.material {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ panel */
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.status { font-size: 14px; }
+
+.status-turn { font-weight: 650; }
+
+.status-detail { color: var(--muted); font-size: 13px; display: block; margin-top: 2px; }
+
+.eval-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.eval-bar {
+  flex: 1;
+  height: 10px;
+  border-radius: 5px;
+  background: #11141a;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.eval-fill {
+  height: 100%;
+  width: 50%;
+  background: var(--text);
+  transition: width 0.25s ease, background 0.25s ease;
+}
+
+.eval-text {
+  min-width: 64px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.moves-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+}
+
+.thinking {
+  color: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse { 50% { opacity: 0.35; } }
+
+.moves {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  height: 232px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 34px 1fr 1fr;
+  align-items: baseline;
+  gap: 2px 6px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  scrollbar-width: thin;
+}
+
+.moves li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.moves li.no { color: var(--muted); font-size: 12px; text-align: right; }
+.moves li.move { padding: 1px 4px; border-radius: 4px; cursor: pointer; }
+.moves li.move:hover { background: var(--panel-2); }
+.moves li.current { background: var(--accent); color: white; }
+
+.controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.btn {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.05s;
+}
+
+.btn:hover { background: #374052; }
+.btn:active { transform: translateY(1px); }
+
+.btn-primary {
+  background: var(--accent-strong);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.btn-primary:hover { background: var(--accent-strong); filter: brightness(1.1); }
+
+.btn-small { padding: 5px 9px; font-size: 12px; }
+
+.fen-box summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.fen-box textarea {
+  width: 100%;
+  margin-top: 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.fen-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.fen-msg { font-size: 12px; color: var(--muted); }
+.fen-msg.error { color: var(--danger); }
+.fen-msg.ok { color: var(--good); }
+
+@media (max-width: 860px) {
+  .moves { height: 168px; }
+}

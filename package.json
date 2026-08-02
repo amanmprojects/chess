@@ -1,0 +1,14 @@
+{
+  "name": "chess-game",
+  "version": "1.0.0",
+  "description": "A complete, rules-correct chess game with an AI opponent. No dependencies.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node server.mjs",
+    "test": "node --test 'test/*.test.mjs'",
+    "perft": "node test/perft-cli.mjs"
+  },
+  "license": "MIT",
+  "private": true
+}
