@@ -9,7 +9,8 @@
 import {
   Chess, WHITE, BLACK, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
   START_FEN, algebraic, squareFromAlgebraic, colorOf, typeOf,
-  moveTo, movePromo, moveFlags, FLAG_CAPTURE, FLAG_PROMO,
+  moveTo, movePromo, moveFlags,
+  FLAG_CAPTURE, FLAG_PROMO, FLAG_EP, FLAG_KCASTLE, FLAG_QCASTLE,
 } from './engine.js';
 import { pieceSvg, pieceName } from './pieces.js';
 
@@ -47,6 +48,8 @@ const el = {
   side: $('side'),
   levelField: $('level-field'),
   sideField: $('side-field'),
+  animate: $('animate'),
+  animateField: $('animate-field'),
 };
 
 // ---------------------------------------------------------------------------
@@ -64,6 +67,8 @@ const state = {
   level: 'intermediate',
   /** Which colour the human plays when the opponent is the computer. */
   humanSide: WHITE,
+  /** Slide the computer's pieces to their square instead of snapping them. */
+  animateOpponent: true,
   selected: -1,
   /** Legal moves from the selected square. */
   candidates: [],
@@ -519,6 +524,154 @@ function showFenMessage(text, kind = '') {
 }
 
 // ---------------------------------------------------------------------------
+// Move animation
+// ---------------------------------------------------------------------------
+
+/**
+ * Moves are animated after the board has already been re-rendered in its new
+ * state: the piece is placed on its destination square, offset back to where
+ * it came from, and then slid to zero. Nothing here can desynchronise the
+ * board from the engine, because the animation only ever touches `transform`.
+ */
+
+const ANIM_MS = 190;
+const ANIM_EASING = 'cubic-bezier(0.22, 0.68, 0.36, 1)';
+
+const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+
+/** Animations currently in flight, so a new move can cut them short. */
+let running = [];
+/** Set by the drag handler: the piece already travelled under the pointer. */
+let skipNextAnimation = false;
+
+function animationsEnabled() {
+  return !reduceMotion?.matches && typeof Element.prototype.animate === 'function';
+}
+
+/** Stop anything in flight and drop it at its final position. */
+function finishAnimations() {
+  for (const animation of running) animation.finish();
+  running = [];
+  // Done synchronously: the callbacks that would otherwise tidy these run on a
+  // microtask, which is too late for a move that is about to start animating.
+  for (const square of el.board.querySelectorAll('[data-slide]')) {
+    square.style.zIndex = '';
+    delete square.dataset.slide;
+  }
+  el.board.querySelectorAll('.capture-ghost').forEach((n) => n.remove());
+}
+
+/** Distinguishes successive lifts of the same square. See `slidePiece`. */
+let slideToken = 0;
+
+/** Slide the piece sitting on `toSq` in from `fromSq`. */
+function slidePiece(fromSq, toSq) {
+  const fromEl = squareEls.get(fromSq);
+  const toEl = squareEls.get(toSq);
+  if (!fromEl || !toEl) return;
+
+  const a = fromEl.getBoundingClientRect();
+  const b = toEl.getBoundingClientRect();
+  const dx = a.left - b.left;
+  const dy = a.top - b.top;
+  if (dx === 0 && dy === 0) return;
+
+  // Squares are grid siblings, so the travelling piece has to be lifted at the
+  // square level to pass over the ones it crosses.
+  const token = String(++slideToken);
+  toEl.style.zIndex = '20';
+  toEl.dataset.slide = token;
+
+  const animation = toEl.firstElementChild.animate(
+    [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0px, 0px)' }],
+    { duration: ANIM_MS, easing: ANIM_EASING },
+  );
+  running.push(animation);
+
+  // Interrupting resolves `finished` on a microtask, which can land *after* a
+  // following move has already re-lifted this same square. The token means a
+  // stale release cannot drop a piece that is currently mid-slide.
+  const release = () => {
+    if (toEl.dataset.slide !== token) return;
+    toEl.style.zIndex = '';
+    delete toEl.dataset.slide;
+  };
+  animation.finished.then(release, release);
+}
+
+/** Fade out the piece that was taken, so captures do not just blink away. */
+function fadeCapture(sq, capturedPiece) {
+  const square = squareEls.get(sq);
+  if (!square || !capturedPiece) return;
+
+  const ghost = document.createElement('span');
+  ghost.className = 'capture-ghost';
+  ghost.innerHTML = pieceSvg(colorOf(capturedPiece), typeOf(capturedPiece));
+  square.append(ghost);
+
+  const animation = ghost.animate(
+    [{ opacity: 0.85, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(0.72)' }],
+    { duration: ANIM_MS + 60, easing: 'ease-out' },
+  );
+  running.push(animation);
+  // A mid-flight interruption (`finish`) resolves `finished` too, so removal is
+  // handled from one place rather than racing with the finish loop above.
+  animation.finished.then(
+    () => ghost.remove(),
+    () => ghost.remove(),
+  );
+}
+
+/** Briefly ring the destination square, so a move is easy to spot. */
+function flashDestination(sq) {
+  const square = squareEls.get(sq);
+  if (!square) return;
+  const animation = square.animate(
+    [
+      { boxShadow: 'inset 0 0 0 3px rgba(79, 140, 255, 0.9)' },
+      { boxShadow: 'inset 0 0 0 3px rgba(79, 140, 255, 0)' },
+    ],
+    { duration: 620, easing: 'ease-out' },
+  );
+  running.push(animation);
+}
+
+/**
+ * Animate a move that has just been applied.
+ *
+ * @param {object} record the record returned by `Chess.move`
+ * @param {Array}  boardBefore a copy of the board from before the move
+ * @param {object} [opts]
+ * @param {boolean} [opts.flash] ring the destination when the move arrives
+ */
+function animateMove(record, boardBefore, { flash = false } = {}) {
+  finishAnimations();
+  if (!animationsEnabled()) return;
+
+  const from = squareIndex(record.from);
+  const to = squareIndex(record.to);
+  const flags = moveFlags(record.move);
+
+  // En passant takes a pawn that is not on the destination square.
+  const capturedSq = (flags & FLAG_EP)
+    ? (record.color === WHITE ? to - 16 : to + 16)
+    : to;
+  if (flags & FLAG_CAPTURE) fadeCapture(capturedSq, boardBefore[capturedSq]);
+
+  slidePiece(from, to);
+
+  // Castling moves two pieces; the rook has to travel as well or the king
+  // appears to jump over a rook that teleported.
+  if (flags & (FLAG_KCASTLE | FLAG_QCASTLE)) {
+    const rookFrom = (flags & FLAG_KCASTLE) ? to + 1 : to - 2;
+    const rookTo = (flags & FLAG_KCASTLE) ? to - 1 : to + 1;
+    slidePiece(rookFrom, rookTo);
+  }
+
+  if (flash) flashDestination(to);
+}
+
+// ---------------------------------------------------------------------------
 // Playing moves
 // ---------------------------------------------------------------------------
 
@@ -527,11 +680,24 @@ function showFenMessage(text, kind = '') {
  * in practice a UCI string from the engine or a packed move from the board.
  */
 function playMove(input) {
+  // Snapshot before the move so the animation can still draw what was taken.
+  const boardBefore = state.game.board.slice();
+  // A move that lands mid-animation cuts the previous one short rather than
+  // overlapping with it.
+  finishAnimations();
+
   const record = state.game.move(input);
   if (!record) {
     showFenMessage('That move is not legal in this position.', 'error');
     return null;
   }
+
+  const byOpponent = state.opponent === 'ai' && record.color !== state.humanSide;
+  // The toggle covers the computer's moves. A human's click-to-move still
+  // slides: that is direct feedback for an action they just took, and it is
+  // never a surprise the way a piece moving on its own is.
+  const animate = !skipNextAnimation && (!byOpponent || state.animateOpponent);
+  skipNextAnimation = false;
 
   state.played.push(record);
   state.timeline.push(state.game.fen());
@@ -543,6 +709,7 @@ function playMove(input) {
   state.resultDismissed = false;
 
   render();
+  if (animate) animateMove(record, boardBefore, { flash: byOpponent });
   maybeStartEngineTurn();
   return record;
 }
@@ -728,7 +895,11 @@ function onDragEnd(event) {
   // move can be finished with a second click.
   if (target === -1 || target === from) { render(); return; }
 
+  // The piece has already been carried to the square under the pointer, so
+  // sliding it there again would be a second, redundant journey.
+  skipNextAnimation = true;
   if (!tryMoveTo(target)) render();
+  skipNextAnimation = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -786,6 +957,7 @@ function onBoardKeyDown(event) {
 // ---------------------------------------------------------------------------
 
 function newGame() {
+  finishAnimations();
   state.game = new Chess();
   state.timeline = [START_FEN];
   state.played = [];
@@ -808,6 +980,7 @@ function newGame() {
 
 function undo() {
   if (state.thinking) return;
+  finishAnimations();
   state.resultDismissed = false;
 
   // Take back a full round — the computer's move and the human's.
@@ -839,6 +1012,9 @@ function undo() {
 }
 
 function flip() {
+  // Squares are about to change places, which would leave any in-flight slide
+  // travelling towards the wrong one.
+  finishAnimations();
   state.orientation ^= 1;
   reorderBoard();
   render();
@@ -855,12 +1031,14 @@ function hint() {
 
 function enterReview(ply) {
   if (ply < 0 || ply >= state.played.length) return;
+  finishAnimations();
   state.reviewIndex = ply + 1;
   render();
 }
 
 function exitReview() {
   if (state.reviewIndex === -1) return;
+  finishAnimations();
   state.reviewIndex = -1;
   render();
 }
@@ -872,6 +1050,7 @@ function exitReview() {
 function loadFen() {
   const text = el.fen.value.trim();
   try {
+    finishAnimations();
     const game = new Chess(text);
     state.game = game;
     state.played = [];
@@ -915,6 +1094,10 @@ function copyFen() {
 function setup() {
   buildBoard();
 
+  // A reload can restore a previously unticked box, so the flag is taken from
+  // the control rather than assumed to still match its default.
+  state.animateOpponent = el.animate.checked;
+
   el.board.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
     if (state.reviewIndex !== -1) exitReview();
@@ -953,11 +1136,18 @@ function setup() {
   $('btn-load').addEventListener('click', loadFen);
   $('btn-copy').addEventListener('click', copyFen);
 
+  el.animate.addEventListener('change', () => {
+    state.animateOpponent = el.animate.checked;
+    // Turning it off mid-slide should take effect at once.
+    if (!state.animateOpponent) finishAnimations();
+  });
+
   el.opponent.addEventListener('change', () => {
     state.opponent = el.opponent.value;
     const isHuman = state.opponent === 'human';
     el.levelField.hidden = isHuman;
     el.sideField.hidden = isHuman;
+    el.animateField.hidden = isHuman;
     if (!isHuman) {
       state.humanSide = el.side.value === 'white' ? WHITE : BLACK;
       if (state.game.turn !== state.humanSide && !state.game.status().over) {

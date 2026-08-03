@@ -79,6 +79,29 @@ body {
   color: var(--muted);
 }
 
+/* A checkbox reads as a row rather than a stacked label over a control, and
+   sits on the baseline of the neighbouring selects. */
+.field-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  padding-bottom: 8px;
+  cursor: pointer;
+}
+
+.field-check input {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.field-check input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 select, textarea {
   background: var(--panel-2);
   color: var(--text);
@@ -173,7 +196,19 @@ select:focus, textarea:focus, .btn:focus-visible {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  z-index: 1;
 }
+
+/* The piece being taken, left behind to fade while its captor arrives. It sits
+   under the slot so the arriving piece is the one on top. */
+.capture-ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.capture-ghost svg { width: 100%; height: 100%; }
 
 .piece {
   position: absolute;
@@ -235,7 +270,9 @@ select:focus, textarea:focus, .btn:focus-visible {
   justify-content: center;
   background: rgba(12, 15, 20, 0.55);
   border-radius: 4px;
+  /* `isolation` keeps a piece lifted mid-slide from rising above the dialog. */
   z-index: 30;
+  isolation: isolate;
 }
 
 /* An author `display` rule outranks the UA stylesheet's `[hidden] { display: none }`,
