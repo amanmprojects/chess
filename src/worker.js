@@ -25,8 +25,9 @@ self.onmessage = (event) => {
 
   try {
     const game = new Chess(fen);
-    // Replay the position keys so the engine can see repetitions.
-    if (Array.isArray(history)) game.positions = history;
+    // The FEN alone cannot express repetitions, so carry over the position keys
+    // of the game so far. The search reads these at its root.
+    if (Array.isArray(history) && history.length > 0) game.positions = history;
 
     const turn = game.turn;
     const started = Date.now();

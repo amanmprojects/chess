@@ -346,6 +346,10 @@ export class Search {
     this.history = new Int32Array(128 * 128);
     this.nodes = 0;
     this.stopped = false;
+    // Zobrist halves of the positions played before the search root, so the
+    // tree can see repetitions that started in the actual game.
+    this.rootHi = [];
+    this.rootLo = [];
   }
 
   scoreMove(game, move, ply, ttMove) {
@@ -547,18 +551,55 @@ export class Search {
     return false;
   }
 
-  isRepetition(game) {
-    // Walk back through the history to the last irreversible move.
-    const hist = game.history;
-    let count = 0;
-    const limit = Math.min(hist.length, game.halfmoves);
-    for (let i = hist.length - 1; i >= hist.length - limit; i--) {
-      const state = hist[i];
-      if (state.hashHi === game.hashHi && state.hashLo === game.hashLo) {
-        count++;
-        if (count >= 1) return true; // one repetition inside the tree is enough
-      }
+  /**
+   * Load the positions played before the search root.
+   *
+   * `game.positions` holds `"hi,lo"` key strings for every position of the real
+   * game, including the root itself as its last element. The search compares
+   * numbers, so parse once here rather than per node.
+   */
+  setupRepetitionHistory(game) {
+    this.rootHi = [];
+    this.rootLo = [];
+
+    const keys = game.positions;
+    if (!Array.isArray(keys) || keys.length === 0) return;
+
+    // Drop the trailing entry when it is the root — the in-tree walk covers it.
+    let end = keys.length;
+    if (keys[end - 1] === game.hashKey()) end--;
+
+    for (let i = 0; i < end; i++) {
+      const key = keys[i];
+      if (typeof key !== 'string') continue;
+      const comma = key.indexOf(',');
+      if (comma < 0) continue;
+      // Both halves are Int32s, so a leading '-' is the only other character.
+      this.rootHi.push(Number(key.slice(0, comma)) | 0);
+      this.rootLo.push(Number(key.slice(comma + 1)) | 0);
     }
+  }
+
+  isRepetition(game) {
+    // Only positions since the last irreversible move can repeat, and the
+    // halfmove clock counts exactly those plies. It spans the in-tree undo
+    // stack first, then continues into the pre-root game history.
+    let remaining = game.halfmoves;
+    if (remaining < 4) return false; // a repetition needs at least four plies
+
+    const hist = game.history;
+    for (let i = hist.length - 1; i >= 0 && remaining > 0; i--, remaining--) {
+      const state = hist[i];
+      // A null move fabricates a position that real play cannot reach, so
+      // anything beyond it is not a genuine ancestor of this node.
+      if (state.null) return false;
+      if (state.hashHi === game.hashHi && state.hashLo === game.hashLo) return true;
+    }
+
+    for (let i = this.rootHi.length - 1; i >= 0 && remaining > 0; i--, remaining--) {
+      if (this.rootHi[i] === game.hashHi && this.rootLo[i] === game.hashLo) return true;
+    }
+
     return false;
   }
 
@@ -582,6 +623,7 @@ export class Search {
     this.deadline = movetime > 0 ? Date.now() + movetime : 0;
     this.killers = Array.from({ length: MAX_PLY }, () => [0, 0]);
     this.history.fill(0);
+    this.setupRepetitionHistory(game);
 
     const rootMoves = game.generateMoves();
     if (rootMoves.length === 0) return { move: 0, score: 0, depth: 0, pv: [], nodes: 0 };
