@@ -509,7 +509,11 @@ select:focus, textarea:focus, .btn:focus-visible {
    chessLLM panel — controls and per-move telemetry for the neural bot.
    --------------------------------------------------------------------------- */
 
+/* Lives in the right-hand panel, which is already a flex column, but the panel's own
+   `gap` is larger than these tightly-related controls want. */
 #llm-panel {
+  display: flex;
+  flex-direction: column;
   gap: 7px;
   padding: 11px;
   border: 1px solid var(--border);

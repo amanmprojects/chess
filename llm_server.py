@@ -24,7 +24,11 @@ from model import MiniLLM, ModelConfig
 import torch
 
 CKPT_PATH = "../llm/data/chess_out/ckpt.pt"
-DEVICE = "cpu"  # keep the GPU free for training; inference is fast enough on CPU
+# Training is done, so the GPU is free -- and it matters here. The sampling loop has no KV
+# cache, so every character re-runs a forward pass over the whole game; on CPU that reaches
+# tens of seconds per move by the middlegame. Fall back to CPU rather than refusing to start,
+# since a slow bot beats no bot.
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def load_model():
@@ -35,7 +39,8 @@ def load_model():
     model.load_state_dict(ck["model"])
     model.to(DEVICE).eval()
     print(f"[loaded] step {ck['step']}/{ck['total_steps']}  val {ck['best_val']:.4f}  "
-          f"{model.num_params() / 1e6:.1f}M params  vocab={cfg.vocab_size}", flush=True)
+          f"{model.num_params() / 1e6:.1f}M params  vocab={cfg.vocab_size}  "
+          f"device={DEVICE}", flush=True)
     return model, cfg
 
 
