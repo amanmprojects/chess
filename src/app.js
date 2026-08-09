@@ -982,6 +982,9 @@ function undo() {
   if (state.thinking) return;
   finishAnimations();
   state.resultDismissed = false;
+  // Undoing while reviewing would pop the timeline underneath the review
+  // index, so return to the live position first.
+  exitReview();
 
   // Take back a full round — the computer's move and the human's.
   const takeBack = () => {
@@ -1009,6 +1012,11 @@ function undo() {
   state.pendingRequest = null;
   setThinking(false);
   render();
+
+  // A single take-back can land on the computer's turn (e.g. undoing its
+  // opening move when you play Black); without this nothing would ever
+  // hand the search back to the engine.
+  maybeStartEngineTurn();
 }
 
 function flip() {

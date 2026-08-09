@@ -29,7 +29,12 @@ const TYPES = {
  * Normalising before resolving is what stops `../` traversal.
  */
 function resolvePath(urlPath) {
-  const decoded = decodeURIComponent(urlPath.split('?')[0]);
+  let decoded;
+  try {
+    decoded = decodeURIComponent(urlPath.split('?')[0]);
+  } catch {
+    return null; // malformed percent-encoding — nothing to serve
+  }
   const clean = normalize(decoded).replace(/^(\.\.[/\\])+/, '');
   const full = resolve(join(ROOT, clean));
   if (full !== ROOT && !full.startsWith(ROOT + sep)) return null;

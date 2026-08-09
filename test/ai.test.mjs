@@ -196,3 +196,22 @@ test('the search respects its time budget', () => {
   const elapsed = Date.now() - started;
   assert.ok(elapsed < 2000, `took ${elapsed}ms for a 400ms budget`);
 });
+
+test('a timed-out search can still be re-scored for the randomness levels', () => {
+  // White is up a full rook, so no shallow search of this position can
+  // legitimately score near zero.
+  const fen = '4k3/8/8/8/8/8/8/R3K3 w - - 0 1';
+  const engine = new Search();
+  engine.findBestMove(new Chess(fen), { depth: 64, movetime: 1 });
+  assert.equal(engine.stopped, true, 'the 1ms budget must expire');
+
+  // chooseMove clears the budget before re-scoring the root moves, exactly
+  // as below. Under an expired budget the search aborts with 0 for every
+  // move, which would flatten the near-best sampling into a random pick.
+  engine.stopped = false;
+  engine.deadline = 0;
+  const game = new Chess(fen);
+  game.makeMove(game.generateMoves()[0]);
+  const score = -engine.negamax(game, 3, -Infinity, Infinity, 1);
+  assert.ok(score > 100, `re-score aborted to 0 — got ${score}`);
+});

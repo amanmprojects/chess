@@ -718,10 +718,16 @@ export function chooseMove(game, levelName = 'intermediate', { search, onIterati
 
   if (!level.randomness || !result.move) return result;
 
+  // The root search may have just stopped on its time budget. The re-scoring
+  // below is shallow (at most level.depth - 1), so give it the time it needs:
+  // an aborted search returns 0, which would flatten every score and turn the
+  // near-best sampling into a completely random move.
+  engine.stopped = false;
+  engine.deadline = 0;
+
   // Re-score the root moves shallowly and sample from the near-best set.
   const rootMoves = game.generateMoves();
   const scored = [];
-  const us = game.turn;
   for (const move of rootMoves) {
     game.makeMove(move);
     const score = -engine.negamax(game, Math.max(0, level.depth - 1), -INFINITY, INFINITY, 1);
