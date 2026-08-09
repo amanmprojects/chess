@@ -26,8 +26,40 @@
           <option value="intermediate" selected>Intermediate</option>
           <option value="strong">Strong</option>
           <option value="expert">Expert</option>
+          <option value="llm">🧠 chessLLM (neural)</option>
         </select>
       </label>
+      <div class="field" id="llm-panel" hidden>
+        <span class="field-label">
+          Temperature <output id="llm-temp-out">0.70</output>
+        </span>
+        <input type="range" id="llm-temp" min="0" max="1.5" step="0.05" value="0.7">
+        <span class="llm-hint">0 = always its top move. Higher = more variety, more blunders.</span>
+
+        <span class="field-label">Rating prompt <output id="llm-bucket-out">2000</output></span>
+        <input type="range" id="llm-bucket" min="15" max="24" step="1" value="20">
+        <span class="llm-hint">The model was trained with a rating tag; ask it to play like that level.</span>
+
+        <div class="llm-readout">
+          <div class="llm-row">
+            <span class="llm-key">Raw output</span>
+            <span class="llm-val" id="llm-raw">—</span>
+          </div>
+          <div class="llm-row">
+            <span class="llm-key">Move played</span>
+            <span class="llm-val" id="llm-move">—</span>
+          </div>
+          <div class="llm-row">
+            <span class="llm-key">Legal-move tries</span>
+            <span class="llm-val" id="llm-tries">—</span>
+          </div>
+          <div class="llm-row">
+            <span class="llm-key">Illegal this game</span>
+            <span class="llm-val" id="llm-illegal">0</span>
+          </div>
+        </div>
+        <span class="llm-hint" id="llm-status"></span>
+      </div>
       <label class="field" id="side-field">
         <span class="field-label">Play as</span>
         <select id="side">

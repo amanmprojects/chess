@@ -9,10 +9,11 @@
 import {
   Chess, WHITE, BLACK, PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING,
   START_FEN, algebraic, squareFromAlgebraic, colorOf, typeOf,
-  moveTo, movePromo, moveFlags,
+  moveTo, movePromo, moveFlags, moveToUci,
   FLAG_CAPTURE, FLAG_PROMO, FLAG_EP, FLAG_KCASTLE, FLAG_QCASTLE,
 } from './engine.js';
 import { pieceSvg, pieceName } from './pieces.js';
+import { requestLlmMove } from './llm.js';
 
 const FILES = 'abcdefgh';
 /** Values used only for the material readout beside each player. */
@@ -50,6 +51,16 @@ const el = {
   sideField: $('side-field'),
   animate: $('animate'),
   animateField: $('animate-field'),
+  llmPanel: $('llm-panel'),
+  llmTemp: $('llm-temp'),
+  llmTempOut: $('llm-temp-out'),
+  llmBucket: $('llm-bucket'),
+  llmBucketOut: $('llm-bucket-out'),
+  llmRaw: $('llm-raw'),
+  llmMove: $('llm-move'),
+  llmTries: $('llm-tries'),
+  llmIllegal: $('llm-illegal'),
+  llmStatus: $('llm-status'),
 };
 
 // ---------------------------------------------------------------------------
@@ -81,6 +92,10 @@ const state = {
   pendingRequest: null,
   evaluation: null,
   promotionPending: null,
+  /** chessLLM controls and per-game telemetry. */
+  llmTemp: 0.7,
+  llmBucket: 20,
+  llmIllegalCount: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -143,10 +158,80 @@ function onWorkerMessage(event) {
 }
 
 /** Ask the engine for a move. `purpose` is 'play' or 'hint'. */
+/**
+ * Ask chessLLM for a move.
+ *
+ * Unlike the search engine, the model takes the move HISTORY rather than the position: it
+ * was trained purely on SAN text and has no concept of a board to be handed. That means
+ * this path cannot serve a hint from a reviewed position or an edited FEN -- there is no
+ * history to give it -- so those cases fall back to the classical engine.
+ *
+ * Replies are funnelled through onWorkerMessage in the worker's own message shape, so the
+ * staleness guard, hint handling, and animation all work without knowing which bot moved.
+ */
+async function requestLlmSearch(id) {
+  const sanHistory = state.played.map((record) => record.san);
+  try {
+    const result = await requestLlmMove(sanHistory, {
+      bucket: state.llmBucket,
+      temp: state.llmTemp,
+    });
+
+    // A newer position superseded this request while the fetch was in flight.
+    if (!state.pendingRequest || state.pendingRequest.id !== id) return;
+
+    // Attempts beyond the first mean the model proposed a move that does not exist in this
+    // position. That is the headline weakness of a board-less model, so it is counted and
+    // shown rather than quietly swallowed by the retry loop.
+    if (result.attempts > 1) state.llmIllegalCount += result.attempts - 1;
+    updateLlmReadout(result);
+
+    if (!result.san) {
+      onWorkerMessage({ data: { type: 'error', id,
+        message: result.error ?? 'the model did not produce a legal move' } });
+      return;
+    }
+
+    // resolveMove() accepts SAN, so the model's own notation can be passed straight to
+    // playMove -- no UCI conversion, and the engine stays the arbiter of legality.
+    const encoded = state.game.resolveMove(result.san);
+    if (encoded == null) {
+      onWorkerMessage({ data: { type: 'error', id,
+        message: `model returned "${result.san}", which is not legal here` } });
+      return;
+    }
+
+    // showHint() slices squares out of a UCI string, so send UCI on the wire and let
+    // playMove re-resolve it -- both consumers then get what they expect.
+    onWorkerMessage({ data: { type: 'bestmove', id, uci: moveToUci(encoded),
+      depth: 0, nodes: 0, score: null } });
+  } catch (error) {
+    if (!state.pendingRequest || state.pendingRequest.id !== id) return;
+    onWorkerMessage({ data: { type: 'error', id,
+      message: `chessLLM sidecar unreachable -- start it with "python llm_server.py" (${error.message})` } });
+  }
+}
+
+/** Mirror what the model just did into the side panel. */
+function updateLlmReadout(result) {
+  if (!el.llmRaw) return;
+  el.llmRaw.textContent = result.rawOutput || '—';
+  el.llmMove.textContent = result.san ?? '(none)';
+  el.llmTries.textContent = String(result.attempts);
+  el.llmTries.className = result.attempts > 1 ? 'llm-val llm-warn' : 'llm-val';
+  el.llmIllegal.textContent = String(state.llmIllegalCount);
+  el.llmIllegal.className = state.llmIllegalCount > 0 ? 'llm-val llm-warn' : 'llm-val';
+}
+
 function requestSearch(purpose, level) {
   const id = ++state.generation;
   state.pendingRequest = { id, purpose };
   setThinking(true);
+
+  if (level === 'llm') {
+    requestLlmSearch(id);
+    return;
+  }
 
   const payload = {
     type: 'search',
@@ -970,6 +1055,16 @@ function newGame() {
   state.evaluation = null;
   state.generation += 1;
   state.pendingRequest = null;
+  state.llmIllegalCount = 0;
+  if (el.llmRaw) {
+    el.llmRaw.textContent = '—';
+    el.llmMove.textContent = '—';
+    el.llmTries.textContent = '—';
+    el.llmTries.className = 'llm-val';
+    el.llmIllegal.textContent = '0';
+    el.llmIllegal.className = 'llm-val';
+    el.llmStatus.textContent = '';
+  }
   setThinking(false);
   render();
 
@@ -1170,6 +1265,23 @@ function setup() {
 
   el.level.addEventListener('change', () => {
     state.level = el.level.value;
+    el.llmPanel.hidden = state.level !== 'llm';
+    if (state.level === 'llm') {
+      el.llmStatus.textContent = state.played.length
+        ? 'Mid-game: the model needs the whole move history, so it picks up from move 1 of this game.'
+        : '';
+    }
+  });
+
+  el.llmTemp.addEventListener('input', () => {
+    state.llmTemp = Number(el.llmTemp.value);
+    el.llmTempOut.textContent = state.llmTemp.toFixed(2);
+  });
+
+  el.llmBucket.addEventListener('input', () => {
+    state.llmBucket = Number(el.llmBucket.value);
+    // Buckets are rating//100, so <20> covers 2000-2099.
+    el.llmBucketOut.textContent = String(state.llmBucket * 100);
   });
 
   el.moves.addEventListener('click', (event) => {

@@ -504,3 +504,65 @@ select:focus, textarea:focus, .btn:focus-visible {
 @media (max-width: 860px) {
   .moves { height: 168px; }
 }
+
+/* ---------------------------------------------------------------------------
+   chessLLM panel — controls and per-move telemetry for the neural bot.
+   --------------------------------------------------------------------------- */
+
+#llm-panel {
+  gap: 7px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+#llm-panel input[type="range"] {
+  accent-color: var(--accent);
+  width: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+#llm-panel output {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.llm-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.llm-readout {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 3px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.llm-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.llm-key {
+  color: var(--muted);
+}
+
+.llm-val {
+  /* Monospace so a changing value does not shift the row width. */
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* Retries and illegal proposals are the interesting failure signal, not an error
+   state to hide -- amber rather than red. */
+.llm-warn { color: #f5a524; }
