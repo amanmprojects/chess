@@ -8,22 +8,38 @@ on success, or {"id": <int>, "error": <str>} on failure.
 
 The model ONLY sees move history (no FEN), so the SAN list must be complete from move 1.
 """
+import os
 import sys
 import json
 import traceback
+from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# The chess/ module lives in the parent llm/ repo one level up, and has no __init__.py
-# so `from chess import X` would resolve to the installed python-chess package.
-sys.path.insert(0, "../llm/chess")
+# Locate the llm repo, which supplies the model definition and the SAN tokenizer. Two
+# layouts are supported: a sibling checkout (../llm) and this repo mounted as a submodule
+# inside it (parent is the llm repo itself). Resolve from THIS FILE rather than the cwd, so
+# the sidecar can be started from anywhere. CHESSLLM_REPO overrides both.
+HERE = Path(__file__).resolve().parent
+CANDIDATES = [Path(os.environ["CHESSLLM_REPO"])] if os.environ.get("CHESSLLM_REPO") else [
+    HERE.parent / "llm",   # sibling checkout:  code/llm + code/chess-ui
+    HERE.parent,           # submodule:         llm/chess-ui
+]
+LLM_REPO = next((p for p in CANDIDATES if (p / "model.py").is_file()), None)
+if LLM_REPO is None:
+    sys.exit("Could not find the llm repo (looked for model.py in: "
+             + ", ".join(str(p) for p in CANDIDATES)
+             + ").\nClone it next to this one, or set CHESSLLM_REPO=/path/to/llm.")
+
+# chess/ has no __init__.py, so `from chess import X` would resolve to the installed
+# python-chess package instead. Import it as a top-level module from its own directory.
+sys.path.insert(0, str(LLM_REPO / "chess"))
 import chess_format as cf
 
-# Same venv trick: torch lives in ../llm/.venv, not system python.
-sys.path.insert(0, "../llm")
+sys.path.insert(0, str(LLM_REPO))
 from model import MiniLLM, ModelConfig
 import torch
 
-CKPT_PATH = "../llm/data/chess_out/ckpt.pt"
+CKPT_PATH = os.environ.get("CHESSLLM_CKPT", str(LLM_REPO / "data" / "chess_out" / "ckpt.pt"))
 # Training is done, so the GPU is free -- and it matters here. The sampling loop has no KV
 # cache, so every character re-runs a forward pass over the whole game; on CPU that reaches
 # tens of seconds per move by the middlegame. Fall back to CPU rather than refusing to start,
@@ -32,6 +48,11 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def load_model():
+    if not Path(CKPT_PATH).is_file():
+        sys.exit(f"No checkpoint at {CKPT_PATH}.\n"
+                 f"Fetch the published weights:\n"
+                 f"    python {LLM_REPO / 'scripts' / 'download_weights.py'}\n"
+                 f"or point CHESSLLM_CKPT at your own.")
     ck = torch.load(CKPT_PATH, map_location="cpu", weights_only=False)
     cfg = ModelConfig(**{k: v for k, v in ck["cfg"].items()
                          if k in ModelConfig.__dataclass_fields__})
