@@ -48,6 +48,7 @@ self.onmessage = (event) => {
     self.postMessage({
       type: 'bestmove',
       id,
+      source: 'worker-search',
       move: result.move,
       uci: result.move ? moveToUci(result.move) : null,
       depth: result.depth,

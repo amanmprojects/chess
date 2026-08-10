@@ -108,6 +108,41 @@ function ensureWorker() {
   return worker;
 }
 
+/**
+ * Announce which engine produced a move, so "is this really the neural net?"
+ * is answerable from the console instead of inferred from move quality.
+ *
+ * The distinction that matters: the net does a single forward pass over one
+ * position, so nodes === 1. Any alpha-beta search reports thousands. A line
+ * claiming `neural-net` but showing a large node count would mean the move
+ * came from ai.js, not the model.
+ */
+function logMoveSource(data, request) {
+  const source = data.source ?? 'unknown';
+  const label = {
+    'neural-net': 'NEURAL NET (serve_model.py)',
+    'worker-search': 'alpha-beta search (worker.js)',
+    'mainthread-search': 'alpha-beta search (main thread fallback)',
+  }[source] ?? `unrecognised source: ${source}`;
+
+  const cp = data.score?.value;
+  console.log(
+    `[move] ${label}` +
+    ` | level=${state.level} purpose=${request.purpose}` +
+    ` | uci=${data.uci ?? '(none)'}` +
+    ` | depth=${data.depth} nodes=${data.nodes}` +
+    (Number.isFinite(cp) ? ` | eval=${(cp / 100).toFixed(2)}` : '') +
+    (Number.isFinite(data.elapsed) ? ` | ${data.elapsed}ms` : '')
+  );
+
+  if (isNeuralLevel(state.level) && source !== 'neural-net') {
+    console.warn(
+      `[move] level is "neural" but the move came from ${source}. ` +
+      'This is a bug: the move is NOT from the neural net.'
+    );
+  }
+}
+
 function onWorkerMessage(event) {
   const data = event.data;
   const request = state.pendingRequest;
@@ -128,6 +163,12 @@ function onWorkerMessage(event) {
   }
 
   if (data.type !== 'bestmove') return;
+
+  // Which engine actually produced this move. Worth logging explicitly: an
+  // unknown level silently falls back to LEVELS.intermediate in ai.js, so a
+  // mis-wired neural level would look like the net playing well rather than
+  // like a bug. `source` is stamped at each dispatch site in requestSearch.
+  logMoveSource(data, request);
 
   state.pendingRequest = null;
   setThinking(false);
@@ -163,7 +204,7 @@ function requestSearch(purpose, level) {
   // handler, which already drops replies superseded by a newer position.
   if (isNeuralLevel(level)) {
     requestNeuralMove(id, payload.fen).then((data) => {
-      onWorkerMessage({ data });
+      onWorkerMessage({ data: { ...data, source: 'neural-net' } });
     });
     return;
   }
@@ -186,7 +227,7 @@ function requestSearch(purpose, level) {
       const result = chooseMove(game, level);
       onWorkerMessage({
         data: {
-          type: 'bestmove', id,
+          type: 'bestmove', id, source: 'mainthread-search',
           uci: result.move ? moveToUci(result.move) : null,
           depth: result.depth, nodes: result.nodes,
           score: { type: 'cp', value: result.score },
