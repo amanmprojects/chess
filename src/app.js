@@ -12,6 +12,7 @@ import {
   moveTo, movePromo, moveFlags,
   FLAG_CAPTURE, FLAG_PROMO, FLAG_EP, FLAG_KCASTLE, FLAG_QCASTLE,
 } from './engine.js';
+import { isNeuralLevel, requestNeuralMove } from './neural.js';
 import { pieceSvg, pieceName } from './pieces.js';
 
 const FILES = 'abcdefgh';
@@ -155,6 +156,17 @@ function requestSearch(purpose, level) {
     level,
     history: state.game.positions.slice(),
   };
+
+  // The neural level is answered by a local Python server rather than by
+  // ai.js. It is a single HTTP round trip, so it does not need the worker;
+  // the reply is shaped like a worker message and goes through the same
+  // handler, which already drops replies superseded by a newer position.
+  if (isNeuralLevel(level)) {
+    requestNeuralMove(id, payload.fen).then((data) => {
+      onWorkerMessage({ data });
+    });
+    return;
+  }
 
   const w = ensureWorker();
   if (w) {
