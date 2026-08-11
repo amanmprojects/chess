@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Chess</title>
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -19,14 +19,18 @@
         </select>
       </label>
       <label class="field" id="level-field">
-        <span class="field-label">Level</span>
+        <span class="field-label">Engine</span>
         <select id="level">
-          <option value="beginner">Beginner</option>
-          <option value="casual">Casual</option>
-          <option value="intermediate" selected>Intermediate</option>
-          <option value="strong">Strong</option>
-          <option value="expert">Expert</option>
-          <option value="neural">Neural net (server)</option>
+          <optgroup label="Search (no LLM)">
+            <option value="beginner">Beginner</option>
+            <option value="casual">Casual</option>
+            <option value="intermediate">Intermediate</option>
+            <option value="strong">Strong</option>
+            <option value="expert">Expert</option>
+          </optgroup>
+          <optgroup label="Neural net">
+            <option value="neural" selected>Neural net</option>
+          </optgroup>
         </select>
       </label>
       <label class="field" id="side-field">
@@ -111,6 +115,19 @@
       </details>
     </aside>
   </main>
+</div>
+
+<!-- Full-screen loading card while the neural net's weights are downloading. -->
+<div class="loading-overlay" id="loading" hidden role="status" aria-live="polite">
+  <div class="loading-card">
+    <div class="loading-spinner" aria-hidden="true"></div>
+    <h2 id="loading-title">Loading chess engine</h2>
+    <p id="loading-detail">Downloading neural network weights…</p>
+    <div class="loading-bar" id="loading-bar" aria-hidden="true">
+      <div class="loading-fill" id="loading-fill"></div>
+    </div>
+    <button class="btn btn-primary" id="loading-retry" hidden>Try again</button>
+  </div>
 </div>
 
 <script type="module" src="src/app.js"></script>

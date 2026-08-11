@@ -51,6 +51,12 @@ const el = {
   sideField: $('side-field'),
   animate: $('animate'),
   animateField: $('animate-field'),
+  loading: $('loading'),
+  loadingTitle: $('loading-title'),
+  loadingDetail: $('loading-detail'),
+  loadingBar: $('loading-bar'),
+  loadingFill: $('loading-fill'),
+  loadingRetry: $('loading-retry'),
 };
 
 // ---------------------------------------------------------------------------
@@ -65,7 +71,7 @@ const state = {
   played: [],
   orientation: WHITE,
   opponent: 'ai',
-  level: 'intermediate',
+  level: 'neural',
   /** Which colour the human plays when the opponent is the computer. */
   humanSide: WHITE,
   /** Slide the computer's pieces to their square instead of snapping them. */
@@ -82,6 +88,11 @@ const state = {
   pendingRequest: null,
   evaluation: null,
   promotionPending: null,
+  /** Neural model loading: 'idle' | 'downloading' | 'decoding' | 'ready' | 'error'. */
+  modelStatus: 'idle',
+  modelLoaded: 0,
+  modelTotal: 0,
+  modelError: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -120,7 +131,7 @@ function ensureWorker() {
 function logMoveSource(data, request) {
   const source = data.source ?? 'unknown';
   const label = {
-    'neural-net': 'NEURAL NET (serve_model.py)',
+    'neural-net': 'NEURAL NET (nn.js in worker)',
     'worker-search': 'alpha-beta search (worker.js)',
     'mainthread-search': 'alpha-beta search (main thread fallback)',
   }[source] ?? `unrecognised source: ${source}`;
@@ -145,6 +156,17 @@ function logMoveSource(data, request) {
 
 function onWorkerMessage(event) {
   const data = event.data;
+
+  // Model download/load status (no request id — it is global state).
+  if (data.type === 'model-status') {
+    state.modelStatus = data.status;
+    state.modelLoaded = data.loaded ?? state.modelLoaded;
+    state.modelTotal = data.total ?? state.modelTotal;
+    state.modelError = data.message ?? null;
+    updateLoadingOverlay();
+    return;
+  }
+
   const request = state.pendingRequest;
   // Ignore anything from a search that a newer position has superseded.
   if (!request || data.id !== request.id) return;
@@ -184,8 +206,54 @@ function onWorkerMessage(event) {
   playMove(data.uci);
 }
 
-/** Ask the engine for a move. `purpose` is 'play' or 'hint'. */
-function requestSearch(purpose, level) {
+// ---------------------------------------------------------------------------
+// Neural model loading overlay
+// ---------------------------------------------------------------------------
+
+/**
+ * The neural net's weights download in the background (model.bin, ~11MB).
+ * Show the loading card only while the model is actually needed — the
+ * computer's turn on the neural level — so the human can keep playing while
+ * it downloads. An error state offers a retry.
+ */
+function updateLoadingOverlay() {
+  const computerToMove = state.opponent === 'ai'
+    && state.game.turn !== state.humanSide
+    && !state.game.status().over;
+  const failed = state.modelStatus === 'error';
+  const show = isNeuralLevel(state.level)
+    && state.modelStatus !== 'ready'
+    && (computerToMove || failed);
+
+  el.loading.hidden = !show;
+  if (!show) return;
+
+  el.loadingRetry.hidden = !failed;
+  el.loadingBar.hidden = failed;
+  if (failed) {
+    el.loadingTitle.textContent = 'Engine failed to load';
+    el.loadingDetail.textContent =
+      `Could not download the neural net: ${state.modelError ?? 'unknown error'}`;
+    return;
+  }
+
+  el.loadingTitle.textContent = 'Loading chess engine';
+  if (state.modelStatus === 'downloading') {
+    const pct = state.modelTotal > 0
+      ? Math.min(99, Math.round((state.modelLoaded / state.modelTotal) * 100))
+      : null;
+    el.loadingDetail.textContent = pct == null
+      ? 'Downloading neural network weights…'
+      : `Downloading neural network weights… ${pct}%`;
+    el.loadingFill.style.width = `${pct ?? 0}%`;
+  } else {
+    el.loadingDetail.textContent =
+      state.modelStatus === 'decoding' ? 'Preparing weights…' : 'Loading…';
+    el.loadingFill.style.width = '100%';
+  }
+}
+
+/** Ask the engine for a move. `purpose` is 'play' or 'hint'. */function requestSearch(purpose, level) {
   const id = ++state.generation;
   state.pendingRequest = { id, purpose };
   setThinking(true);
@@ -198,14 +266,34 @@ function requestSearch(purpose, level) {
     history: state.game.positions.slice(),
   };
 
-  // The neural level is answered by a local Python server rather than by
-  // ai.js. It is a single HTTP round trip, so it does not need the worker;
-  // the reply is shaped like a worker message and goes through the same
-  // handler, which already drops replies superseded by a newer position.
+  // The neural level runs the trained net locally via nn.js — the weights are
+  // shipped with the static site, so no server round trip is involved. It
+  // lives in the worker alongside the alpha-beta search; the reply is shaped
+  // like a worker message and goes through the same handler, which already
+  // drops replies superseded by a newer position.
   if (isNeuralLevel(level)) {
-    requestNeuralMove(id, payload.fen).then((data) => {
-      onWorkerMessage({ data: { ...data, source: 'neural-net' } });
-    });
+    const w = ensureWorker();
+    if (w) {
+      w.postMessage({ type: 'neural', id, fen: payload.fen });
+      return;
+    }
+    // Worker-less fallback (some file:// setups): run on the main thread,
+    // deferred so the "thinking" indicator paints first.
+    setTimeout(async () => {
+      try {
+        const { requestNeuralMove } = await import('./neural.js');
+        const result = await requestNeuralMove(payload.fen);
+        onWorkerMessage({
+          data: {
+            type: 'bestmove', id, source: 'neural-net',
+            uci: result.uci, depth: 1, nodes: 1, elapsed: result.ms,
+            score: { type: 'cp', value: result.cp },
+          },
+        });
+      } catch (error) {
+        onWorkerMessage({ data: { type: 'error', id, message: String(error?.message ?? error) } });
+      }
+    }, 20);
     return;
   }
 
@@ -306,6 +394,7 @@ function reorderBoard() {
 // ---------------------------------------------------------------------------
 
 function render() {
+  updateLoadingOverlay();
   const reviewing = state.reviewIndex !== -1;
   const position = reviewing ? new Chess(state.timeline[state.reviewIndex]) : state.game;
   const highlight = reviewing
@@ -1209,6 +1298,7 @@ function setup() {
     el.levelField.hidden = isHuman;
     el.sideField.hidden = isHuman;
     el.animateField.hidden = isHuman;
+    updateLoadingOverlay();
     if (!isHuman) {
       state.humanSide = el.side.value === 'white' ? WHITE : BLACK;
       if (state.game.turn !== state.humanSide && !state.game.status().over) {
@@ -1231,6 +1321,14 @@ function setup() {
 
   el.level.addEventListener('change', () => {
     state.level = el.level.value;
+    updateLoadingOverlay();
+  });
+
+  el.loadingRetry.addEventListener('click', () => {
+    state.modelStatus = 'downloading';
+    state.modelError = null;
+    updateLoadingOverlay();
+    ensureWorker()?.postMessage({ type: 'neural-preload' });
   });
 
   el.moves.addEventListener('click', (event) => {
@@ -1251,6 +1349,11 @@ function setup() {
 
   render();
   maybeStartEngineTurn();
+
+  // The default engine is the neural net, so start pulling its weights in the
+  // background at once — the first computer move should not wait for an 11MB
+  // download. The worker reports progress via 'model-status' messages.
+  ensureWorker()?.postMessage({ type: 'neural-preload' });
 }
 
 setup();

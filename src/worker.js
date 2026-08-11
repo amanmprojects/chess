@@ -1,10 +1,21 @@
 /**
  * The AI runs here so that thinking never blocks the board.
+ *
+ * Two kinds of requests:
+ *   - {type:'search', ...}  alpha-beta search (ai.js)
+ *   - {type:'neural', ...}  the trained policy net, run in-process via nn.js
+ *                           (weights ship with the static site — no server)
  */
 import { Chess, moveToUci } from './engine.js';
 import { Search, chooseMove, MATE, MATE_THRESHOLD } from './ai.js';
+import { preloadNeural, requestNeuralMove } from './neural.js';
 
 const search = new Search({ ttSizeMb: 48 });
+
+/** Report neural model download/load progress to the app for its overlay. */
+function reportModelStatus(status) {
+  self.postMessage({ type: 'model-status', ...status });
+}
 
 /** Turn a raw centipawn score into something a person can read. */
 function describeScore(score, turn) {
@@ -19,8 +30,43 @@ function describeScore(score, turn) {
   return { type: 'cp', value: score };
 }
 
+/** One forward pass of the neural net. Shaped like the worker's search reply. */
+async function handleNeural({ id, fen }) {
+  try {
+    const started = Date.now();
+    const result = await requestNeuralMove(fen);
+    self.postMessage({
+      type: 'bestmove',
+      id,
+      source: 'neural-net',
+      uci: result.uci,
+      // The net does no search: one forward pass, one position looked at.
+      depth: 1,
+      nodes: 1,
+      elapsed: result.ms ?? Date.now() - started,
+      score: { type: 'cp', value: result.cp },
+    });
+  } catch (error) {
+    self.postMessage({
+      type: 'error',
+      id,
+      message: `Neural net: ${error?.message ?? error}`,
+    });
+  }
+}
+
 self.onmessage = (event) => {
   const { type, id, fen, level, history } = event.data;
+  if (type === 'neural-preload') {
+    // Fetch the neural weights in the background; progress streams back as
+    // 'model-status' messages. Failures reset the cache, so a retry refetches.
+    preloadNeural(reportModelStatus);
+    return;
+  }
+  if (type === 'neural') {
+    handleNeural({ id, fen });
+    return;
+  }
   if (type !== 'search') return;
 
   try {
