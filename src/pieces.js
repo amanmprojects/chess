@@ -71,6 +71,13 @@ const SHAPES = {
 const FILLS = {
   white: { fill: '#f8f8f8', stroke: '#242424', detail: '#242424' },
   black: { fill: '#2c2c2c', stroke: '#0a0a0a', detail: '#e8e8e8' },
+
+  // The captured tray sits on the dark player strip, where the black body
+  // colour is within a few points of the background and the piece disappears.
+  // Tray pieces are drawn in one flat light tone instead: a bar only ever holds
+  // the pieces its opponent lost, so there is never a mix of colours to
+  // tell apart, and the silhouette alone identifies the piece.
+  tray: { fill: '#c9d1d9', stroke: '#8b96a3', detail: '#8b96a3' },
 };
 
 /**
@@ -80,12 +87,13 @@ const FILLS = {
  * @param {number} type  PAWN…KING
  * @param {object} [opts]
  * @param {string} [opts.className]
+ * @param {string} [opts.palette] a FILLS key, when the piece is not on a board
  * @returns {string} an `<svg>` element
  */
-export function pieceSvg(color, type, { className = 'piece' } = {}) {
+export function pieceSvg(color, type, { className = 'piece', palette } = {}) {
   const shape = SHAPES[type];
   if (!shape) return '';
-  const c = color === WHITE ? FILLS.white : FILLS.black;
+  const c = (palette && FILLS[palette]) || (color === WHITE ? FILLS.white : FILLS.black);
 
   // `detail` marks the inner line-work, which must contrast with the body
   // rather than with the board, so it gets the opposite colour.

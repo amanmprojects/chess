@@ -349,7 +349,11 @@ select:focus, textarea:focus, .btn:focus-visible {
 
 .captured svg { width: 18px; height: 18px; }
 .captured svg.dim { opacity: 0.45; }
-.captured svg.captured-piece { width: 16px; height: 16px; opacity: 0.55; }
+/* The pieces are drawn in the light `tray` palette (see pieces.js) so that the
+   black ones still read against the dark strip. The opacity here only softens
+   them so they stay secondary to the name; it no longer has to carry the
+   contrast on its own. */
+.captured svg.captured-piece { width: 16px; height: 16px; opacity: 0.82; }
 
 .material {
   margin-left: auto;
