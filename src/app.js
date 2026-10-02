@@ -471,7 +471,7 @@ function fillStrip(strip, color, counts, position) {
   const svgs = [];
   for (const type of CAPTURED_ORDER) {
     for (let i = 0; i < taken[type]; i++) {
-      svgs.push(pieceSvg(color ^ 1, type, { className: 'captured-piece' }));
+      svgs.push(pieceSvg(color ^ 1, type, { className: 'captured-piece', palette: 'tray' }));
     }
   }
   capturedEl.innerHTML = svgs.join('');
